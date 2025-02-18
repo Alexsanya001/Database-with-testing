@@ -87,7 +87,6 @@ echo -e "${T}${BF}Generating data...${CNL}"
 docker run -it --name $JAVA_CONTAINER --network=host --shm-size=1g -v "$HOST_DIR":/data openjdk:17-jdk java -jar /data/Datagenerator.jar /data
 
 # Get Docker logs
-# shellcheck disable=SC2046
 output=$(docker logs $(docker ps -lq))
 
 # Save the number of suppliers and products in variables
