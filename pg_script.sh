@@ -18,7 +18,7 @@ PG_PORT=5432
 
 function is_port_available() {
     local port=$1
-    if ss -ltn | grep -q :$port; then
+    if ss -ltn | grep -q :"$port"; then
         return 1
     else
         return 0
@@ -26,7 +26,7 @@ function is_port_available() {
 }
 
 # Check and set the first available port
-while ! is_port_available $PORT; do
+while ! is_port_available "$PORT"; do
     echo -e "Port ${T}${RF}$PORT${CNL} is in use. Trying the next one..."
     ((PORT++))
 done
@@ -47,13 +47,13 @@ EXISTING_PG_CONTAINER=$(docker ps -a -q -f name=$CONTAINER_NAME)
 EXISTING_JAVA_CONTAINER=$(docker ps -a -q -f name=$JAVA_CONTAINER)
 
 # If the container exists, it needs to be removed
-if [ ! -z "$EXISTING_PG_CONTAINER" ]; then
+if [ -n "$EXISTING_PG_CONTAINER" ]; then
     echo "Container with name $CONTAINER_NAME found, removing it..."
     docker stop $CONTAINER_NAME
     docker rm $CONTAINER_NAME
 fi
 
-if [ ! -z "$EXISTING_JAVA_CONTAINER" ]; then
+if [ -n "$EXISTING_JAVA_CONTAINER" ]; then
     echo -e "Container with name $JAVA_CONTAINER found, removing it...\n"
     docker stop $JAVA_CONTAINER
     docker rm $JAVA_CONTAINER
@@ -67,7 +67,7 @@ docker pull postgres:16
 echo
 # Start the PostgreSQL container on the specified port
 echo -e "Starting the PostgreSQL container on port ${B}${GF}$PORT${CNL}..."
-docker run --name $CONTAINER_NAME -d -p $PORT:$PG_PORT -e POSTGRES_PASSWORD=mysecretpassword postgres:16
+docker run --name $CONTAINER_NAME -d -p "$PORT":$PG_PORT -e POSTGRES_PASSWORD=mysecretpassword postgres:16
 
 echo "Initializing..."
 while ! docker logs "$CONTAINER_NAME" 2>&1 | grep -q "database system is ready to accept connections"; do
@@ -79,14 +79,15 @@ docker exec $CONTAINER_NAME mkdir -p /data/tests
 echo
 # Mount files into the PostgreSQL container
 echo "Mounting files into the PostgreSQL container..."
-docker cp $HOST_DIR/db_filling/. $CONTAINER_NAME:data/
-docker cp $HOST_DIR/tests/. $CONTAINER_NAME:/data/tests/
+docker cp "$HOST_DIR"/db_filling/. $CONTAINER_NAME:data/
+docker cp "$HOST_DIR"/tests/. $CONTAINER_NAME:/data/tests/
 echo
 # Start the Java container with JDK-17 for data generation
 echo -e "${T}${BF}Generating data...${CNL}"
-docker run -it --name $JAVA_CONTAINER --network=host --shm-size=1g -v $HOST_DIR:/data openjdk:17-jdk java -jar /data/Datagenerator.jar /data
+docker run -it --name $JAVA_CONTAINER --network=host --shm-size=1g -v "$HOST_DIR":/data openjdk:17-jdk java -jar /data/Datagenerator.jar /data
 
 # Get Docker logs
+# shellcheck disable=SC2046
 output=$(docker logs $(docker ps -lq))
 
 # Save the number of suppliers and products in variables
@@ -99,8 +100,8 @@ docker rm $JAVA_CONTAINER -f
 echo
 # After data generation, mount the generated files into the PostgreSQL container
 echo "Mounting the generated data into the PostgreSQL container..."
-docker cp $HOST_DIR/suppliers.csv $CONTAINER_NAME:/data/suppliers.csv
-docker cp $HOST_DIR/products.csv $CONTAINER_NAME:/data/products.csv
+docker cp "$HOST_DIR"/suppliers.csv $CONTAINER_NAME:/data/suppliers.csv
+docker cp "$HOST_DIR"/products.csv $CONTAINER_NAME:/data/products.csv
 
 # Configure the admin user and the database
 PG_USER='admin'
@@ -143,7 +144,7 @@ echo -e "${B}${TF}Preparation complete. Proceeding to tests${CNL}"
 # Timer for tests
 countdown() {
     local secs=$1
-    while [ $secs -ge 0 ]; do
+    while [ "$secs" -ge 0 ]; do
         echo -ne "$secs \r"
         sleep 1
         ((secs--))
@@ -171,7 +172,7 @@ echo "In 10 seconds, the default parameters will be applied"
 echo "Do you want to change the parameters? (Y / N)"
 
 # Wait for user input for 10 seconds
-read -t 10 change_params
+read -r -t 10 change_params
 
 # If the user does not respond (empty value), continue with the current values
 if [[ -z "$change_params" ]]; then
@@ -182,15 +183,15 @@ fi
 # If the user enters 'y', request new parameters
 if [[ "${change_params,,}" == "y" ]]; then
     echo "Enter the number of clients. (To keep the default value [$CLIENTS], press ENTER)"
-    read new_clients
+    read -r new_clients
     CLIENTS=${new_clients:-$CLIENTS}  # If no value is entered, keep the default
 
     echo "Enter the number of threads (default $THREADS):"
-    read new_threads
+    read -r new_threads
     THREADS=${new_threads:-$THREADS}  # If no value is entered, keep the default
 
     echo "Enter the test duration in seconds (default $TIME):"
-    read new_time
+    read -r new_time
     TIME=${new_time:-$TIME}  # If no value is entered, keep the default
 fi
 
@@ -214,25 +215,25 @@ After the test is completed, a report will be presented, from which you can get:
 echo
 echo "Run the test?"
 echo -e "\033[1;32m'Y'\033[0m to run. Any other key to skip"
-read execute1
+read -r execute1
 if [[ "${execute1,,}" == "y" ]]; then
     echo -e "Specify the scaling level (e.g., 2). To keep the default value, press ${B}${GF}ENTER${CNL}"
-    read scale
+    read -r scale
     SCALE=${scale:-$SCALE}
     echo -e "Running the test...\n"
 
     echo -e "Pgbench is initializing its tables...\n"
-    docker exec $CONTAINER_NAME pgbench -i -s $SCALE -U $PG_USER -d $DB_NAME
+    docker exec $CONTAINER_NAME pgbench -i -s "$SCALE" -U $PG_USER -d $DB_NAME
 
     echo -e "\nFor $TIME seconds, pgbench will test the database with its tables"
-    countdown $TIME &
+    countdown "$TIME" &
     CDWN_PID=$!
-    docker exec $CONTAINER_NAME pgbench -c $CLIENTS -j $THREADS -T $TIME -U $PG_USER $DB_NAME 2>"$PGBENCH_LOGS" | sed -n \
+    docker exec $CONTAINER_NAME pgbench -c "$CLIENTS" -j "$THREADS" -T "$TIME" -U $PG_USER $DB_NAME 2>"$PGBENCH_LOGS" | sed -n \
     '/transaction type:/,$p'
 else
     echo "Skipping the test"
 fi
-wait $CDWN_PID
+wait "$CDWN_PID"
 
 echo -e "\n${B}${TF}Testing your created tables...${CNL}\n"
 
@@ -240,17 +241,17 @@ for sql_file in $(docker exec $CONTAINER_NAME ls /data/tests/); do
     echo -e "${B}${YF}Testing $sql_file...${CNL}"
     echo "Run the test?"
     echo -e "\033[1;32m'Y'\033[0m to run, any other key to skip"
-    read execute
+    read -r execute
     if [[ "${execute,,}" == "y" ]]; then
         echo "Running the test..."
-        countdown $TIME &
+        countdown "$TIME" &
         CDWN_PID=$!
-        docker exec $CONTAINER_NAME pgbench -f "/data/tests/$sql_file" -c $CLIENTS -j $THREADS -T $TIME -U $PG_USER -d $DB_NAME \
+        docker exec $CONTAINER_NAME pgbench -f "/data/tests/$sql_file" -c "$CLIENTS" -j "$THREADS" -T "$TIME" -U $PG_USER -d $DB_NAME \
         2>"$PGBENCH_LOGS" | sed -n '/transaction type:/,$p'
     else
         echo -e "Skipping the test\n"
     fi
-    wait $CDWN_PID
+    wait "$CDWN_PID"
 done
 
 echo -e "\nAll configurations completed successfully!\n"
